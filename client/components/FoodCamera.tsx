@@ -1,48 +1,89 @@
-import React, { useState } from "react";
-import { View, Image, Button, StyleSheet } from "react-native";
-import * as ImagePicker from "expo-image-picker";
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import { useRef, useState } from 'react';
+import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-const FoodCamera = () => {
-  const [image, setImage] = useState<string | null>(null);
+export default function App() {
+  const [facing, setFacing] = useState<CameraType>('back');
+  const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView>(null);
 
-  const takePhoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== "granted") {
-      alert("Camera permission is required!");
-      return;
-    }
+  if (!permission) {
+    // Camera permissions are still loading.
+    return <View />;
+  }
 
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
+  if (!permission.granted) {
+    // Camera permissions are not granted yet.
+    return (
+      <View style={styles.container}>
+        <Text style={styles.message}>We need your permission to show the camera</Text>
+        <Button onPress={requestPermission} title="grant permission" />
+      </View>
+    );
+  }
 
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
-    }
+  const takePicture = async () => {
+    const photo = await cameraRef.current?.takePictureAsync();
+    console.log(photo);
   };
 
   return (
     <View style={styles.container}>
-      {image && <Image source={{ uri: image }} style={styles.image} />}
-      <Button title="Take a Photo" onPress={takePhoto} />
+      <CameraView style={styles.camera} ref={cameraRef} facing={facing}>
+        <View style={styles.circle}>
+        </View>
+      </CameraView>
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity style={styles.takePictureButton} onPress={takePicture}>
+          <Text style={styles.text}>Take Picture</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    justifyContent: 'center',
+    // width: '90%',
   },
-  image: {
+  message: {
+    textAlign: 'center',
+    paddingBottom: 10,
+  },
+  camera: {
+    // flex: 1,
+    width: 300, // Set a fixed width
+    height: 300, // Set the same height to make it a square
+    alignSelf: 'center',
+  },
+  circle: {
     width: 200,
     height: 200,
-    borderRadius: 10,
-    marginBottom: 10,
+    borderRadius: 100,
+    borderWidth: 2,
+    borderColor: 'white',
+    borderStyle: 'dashed',
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -100 }, { translateY: -100}]
+  },
+  buttonContainer: {
+    marginTop: 10,
+  },
+  text: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  takePictureButton: {
+    width: 200,
+    alignSelf: 'center',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: 'rgba(51, 136, 89, 0.7)',
+    borderRadius: 50,
   },
 });
-
-export default FoodCamera;
