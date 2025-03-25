@@ -1,6 +1,7 @@
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { useRef, useState } from 'react';
 import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { uploadImage } from '../services/api';
 
 export default function App() {
   const [facing, setFacing] = useState<CameraType>('back');
@@ -24,7 +25,9 @@ export default function App() {
 
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync();
-    console.log(photo);
+    if (photo) {
+      await uploadImage(photo.uri);
+    }
   };
 
   return (
