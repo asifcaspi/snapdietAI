@@ -1,4 +1,5 @@
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { useRef, useState } from 'react';
 import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { uploadImage } from '../services/api';
@@ -23,10 +24,20 @@ export default function App() {
     );
   }
 
+  const fixOrientation = async (imageUri: string) => {
+    const fixedImage = await ImageManipulator.manipulateAsync(
+      imageUri,
+      [],
+      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    return fixedImage.uri;
+  };
+  
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync();
     if (photo) {
-      await uploadImage(photo.uri);
+      const fixedUri = await fixOrientation(photo.uri);
+      await uploadImage(fixedUri);
     }
   };
 
