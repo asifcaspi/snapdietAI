@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system';
 import axios from 'axios';
 
-const API_URL = 'http://172.20.10.4:8000/upload';
+const API_URL = 'http://192.168.1.44:8000/upload';
 
 export const uploadImage = async (imageUri: string) => {
   try {

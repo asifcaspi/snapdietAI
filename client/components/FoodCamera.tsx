@@ -3,55 +3,72 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { useRef, useState } from 'react';
 import { Button, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { uploadImage } from '../services/api';
+import ImageResultDisplay from './ImageResultDisplay';
 
-export default function App() {
-  const [facing, setFacing] = useState<CameraType>('back');
+export default function FoodCamera() {
+  const [facing, setFacing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
+  const [imageUri, setImageUri] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, string | null>>({});
 
   if (!permission) {
-    // Camera permissions are still loading.
     return <View />;
   }
 
   if (!permission.granted) {
-    // Camera permissions are not granted yet.
     return (
       <View style={styles.container}>
         <Text style={styles.message}>We need your permission to show the camera</Text>
-        <Button onPress={requestPermission} title="grant permission" />
+        <Button onPress={requestPermission} title="Grant Permission" />
       </View>
     );
   }
 
   const fixOrientation = async (imageUri: string) => {
-    const fixedImage = await ImageManipulator.manipulateAsync(
-      imageUri,
-      [],
-      { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
-    );
+    const fixedImage = await ImageManipulator.manipulateAsync(imageUri, [], {
+      compress: 1,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
     return fixedImage.uri;
   };
-  
+
   const takePicture = async () => {
     const photo = await cameraRef.current?.takePictureAsync();
     if (photo) {
       const fixedUri = await fixOrientation(photo.uri);
-      await uploadImage(fixedUri);
+      setImageUri(fixedUri); // Save the image URI to display later
+
+      try {
+        const response = await uploadImage(fixedUri);
+        setResults(response); // Save the results to display below the image
+      } catch (error) {
+        console.error("Error uploading image:", error);
+      }
     }
+  };
+
+  const handleReturn = () => {
+    setImageUri(null); // Reset the image URI
+    setResults({}); // Reset the results
   };
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} ref={cameraRef} facing={facing}>
-        <View style={styles.circle}>
-        </View>
-      </CameraView>
-      <View style={styles.buttonContainer}>
-        <TouchableOpacity style={styles.takePictureButton} onPress={takePicture}>
-          <Text style={styles.text}>Take Picture</Text>
-        </TouchableOpacity>
-      </View>
+      {!imageUri ? (
+        <>
+          <CameraView style={styles.camera} ref={cameraRef} facing={facing}>
+            <View style={styles.circle}></View>
+          </CameraView>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity style={styles.takePictureButton} onPress={takePicture}>
+              <Text style={styles.text}>Take Picture</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      ) : (
+        <ImageResultDisplay imageUri={imageUri} results={results} onReturn={handleReturn} />
+      )}
     </View>
   );
 }
