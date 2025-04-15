@@ -59,6 +59,7 @@ export default function FoodCamera() {
         <>
           <CameraView style={styles.camera} ref={cameraRef} facing={facing}>
             <View style={styles.circle}></View>
+            <View style={styles.coinCircle}></View>
           </CameraView>
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.takePictureButton} onPress={takePicture}>
@@ -100,6 +101,17 @@ const styles = StyleSheet.create({
     top: '50%',
     left: '50%',
     transform: [{ translateX: -100 }, { translateY: -100}]
+  },
+  coinCircle:{
+    width: 40,
+    height: 40,
+    borderRadius: 100,
+    borderWidth: 2,
+    borderColor: 'white',
+    borderStyle: 'dashed',
+    position: 'relative',
+    top: 20,
+    left: 30,
   },
   buttonContainer: {
     marginTop: 10,
