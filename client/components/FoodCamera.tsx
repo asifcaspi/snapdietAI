@@ -11,6 +11,7 @@ export default function FoodCamera() {
   const cameraRef = useRef<CameraView>(null);
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string | null>>({});
+  const [loading, setLoading] = useState(false);
 
   if (!permission) {
     return <View />;
@@ -38,12 +39,15 @@ export default function FoodCamera() {
     if (photo) {
       const fixedUri = await fixOrientation(photo.uri);
       setImageUri(fixedUri); // Save the image URI to display later
+      setLoading(true); // Set loading to true while uploading
 
       try {
         const response = await uploadImage(fixedUri);
         setResults(response); // Save the results to display below the image
       } catch (error) {
         console.error("Error uploading image:", error);
+      } finally {
+        setLoading(false); // Reset loading state
       }
     }
   };
@@ -68,7 +72,7 @@ export default function FoodCamera() {
           </View>
         </>
       ) : (
-        <ImageResultDisplay imageUri={imageUri} results={results} onReturn={handleReturn} />
+        <ImageResultDisplay imageUri={imageUri} results={results} loading={loading} onReturn={handleReturn} />
       )}
     </View>
   );

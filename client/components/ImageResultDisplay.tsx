@@ -1,29 +1,37 @@
 import React from "react";
-import { View, Text, Image, StyleSheet, FlatList, Button } from "react-native";
+import { View, Text, Image, StyleSheet, FlatList, Button, ActivityIndicator } from "react-native";
 
 interface ImageResultDisplayProps {
   imageUri: string;
   results: Record<string, string | null>;
   onReturn: () => void;
+  loading: boolean; // Add loading prop
 }
 
-const ImageResultDisplay: React.FC<ImageResultDisplayProps> = ({ imageUri, results, onReturn }) => {
+const ImageResultDisplay: React.FC<ImageResultDisplayProps> = ({ imageUri, results, onReturn, loading }) => {
   return (
     <View style={styles.container}>
       {/* Display the image */}
       <Image source={{ uri: imageUri }} style={styles.image} />
 
-      {/* Display the results */}
-      <Text style={styles.resultsTitle}>Results per 100 grams:</Text>
-      <FlatList
-        data={Object.entries(results)}
-        keyExtractor={([key]) => key}
-        renderItem={({ item: [key, value] }) => (
-          <Text style={styles.resultItem}>
-            {key}: {value ?? "N/A"}
-          </Text>
-        )}
-      />
+      {loading ? ( // Show loader when loading is true
+        <ActivityIndicator size="large" color="#338859" />
+      ) : (
+        <>
+          {/* Display the results */}
+          <Text style={styles.resultsTitle}>Results per 100 grams:</Text>
+          <FlatList
+            data={Object.entries(results)}
+            keyExtractor={([key]) => key}
+            renderItem={({ item: [key, value] }) => (
+              <Text style={styles.resultItem}>
+                {key}: {value ?? "N/A"}
+              </Text>
+            )}
+          />
+        </>
+      )}
+
       <Button title="Return to Camera" onPress={onReturn} />
     </View>
   );
