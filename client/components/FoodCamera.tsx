@@ -59,12 +59,14 @@ export default function FoodCamera() {
 
   return (
     <View style={styles.container}>
+      <CameraView style={[styles.camera, imageUri && styles.hidden]} ref={cameraRef} facing={facing}>
+      </CameraView>
+      <View style={styles.overlay}>
+        <View style={styles.circle}></View>
+        <View style={styles.coinCircle}></View>
+      </View>
       {!imageUri ? (
         <>
-          <CameraView style={styles.camera} ref={cameraRef} facing={facing}>
-            <View style={styles.circle}></View>
-            <View style={styles.coinCircle}></View>
-          </CameraView>
           <View style={styles.buttonContainer}>
             <TouchableOpacity style={styles.takePictureButton} onPress={takePicture}>
               <Text style={styles.text}>Take Picture</Text>
@@ -93,6 +95,16 @@ const styles = StyleSheet.create({
     width: 300, // Set a fixed width
     height: 300, // Set the same height to make it a square
     alignSelf: 'center',
+    position: 'relative'
+  },
+  hidden: {
+    display: 'none',
+  },
+  overlay: {
+    display: "none",
+    width: 300,
+    height: 300,
+    zIndex: 1
   },
   circle: {
     width: 200,
