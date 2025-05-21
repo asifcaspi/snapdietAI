@@ -51,11 +51,12 @@ def classify_segment(image):
     with torch.no_grad():
         img_feat = model.encode_image(image_tensor)
         img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
-
-    return knn.predict([img_feat.cpu().numpy().flatten()])[0]
+    distances, indices = knn.kneighbors([img_feat.cpu().numpy().flatten()])
+    confidence = 1 - distances.ravel() 
+    return knn.predict([img_feat.cpu().numpy().flatten()])[0], confidence[0]
 
 # Segment and classify each segment
-def segment_and_classify(image_object, max_segments=5):
+def segment_and_classify(image_object, max_segments=10):
     image = np.array(image_object)
 
     # Generate all masks
@@ -78,14 +79,14 @@ def segment_and_classify(image_object, max_segments=5):
         masked_image[~seg_mask] = 0
 
         pil_segment = Image.fromarray(masked_image)
-        class_name = classify_segment(pil_segment)
+        class_name, confidence = classify_segment(pil_segment)
         pixel_count = np.sum(seg_mask)
-
-        output.append({
-            "mask": seg_mask,
-            "class": class_name,
-            "pixels": pixel_count
-        })
+        if confidence > 0.25:
+            output.append({
+                "mask": seg_mask,
+                "class": class_name,
+                "pixels": pixel_count
+            })
 
     return output
 
