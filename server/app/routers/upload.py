@@ -127,7 +127,7 @@ async def upload_image(data: Base64Image):
             if str(data["class"]).lower() in key.lower():
                 matching_calories = value
                 break  # Stop searching after the first match
-        result[str(data["class"])] = calculate_amount_of_calories(pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal")))
+        result[str(data["class"])] = calculate_amount_of_calories(pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal"))) if matching_calories else None
     return result
 
 

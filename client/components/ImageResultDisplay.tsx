@@ -19,13 +19,13 @@ const ImageResultDisplay: React.FC<ImageResultDisplayProps> = ({ imageUri, resul
       ) : (
         <>
           {/* Display the results */}
-          <Text style={styles.resultsTitle}>Results per 100 grams:</Text>
+          <Text style={styles.resultsTitle}>Results:</Text>
           <FlatList
             data={Object.entries(results)}
             keyExtractor={([key]) => key}
             renderItem={({ item: [key, value] }) => (
               <Text style={styles.resultItem}>
-                {key}: {value ?? "N/A"}
+                {key}: {value ? value + " cal" : "N/A"}
               </Text>
             )}
           />
