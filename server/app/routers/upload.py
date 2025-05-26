@@ -8,12 +8,14 @@ from PIL import Image
 from app.models.b64_image_model import Base64Image
 import numpy as np
 # import tensorflow as tf
-from app.utils.image_utils import get_pixel_size_in_mm
+from app.utils.image_utils import calculate_amount_of_calories, get_pixel_size_in_mm
 import torch
 import open_clip
 import joblib
 import platform
 from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+
+torch.set_num_threads(8)
 
 output_file = os.path.join(os.path.join(os.path.dirname(__file__), "../../sam_vit_h_4b8939.pth"))
 if not os.path.exists(output_file):
@@ -32,7 +34,7 @@ knn = joblib.load(os.path.join(os.path.dirname(__file__), "../../knn_model.jobli
 
 sam = sam_model_registry["vit_h"](checkpoint="sam_vit_h_4b8939.pth")
 sam.to(device)
-mask_generator = SamAutomaticMaskGenerator(sam)
+mask_generator = SamAutomaticMaskGenerator(sam, points_per_side=16, min_mask_region_area=100)
 
 router = APIRouter()
 
@@ -112,18 +114,20 @@ def image_class_list(segments):
 async def upload_image(data: Base64Image):
     image_data = base64.b64decode(data.image.split(",")[1])
     image = Image.open(io.BytesIO(image_data))
-    image = image.resize((224, 224))
+    original_width, _ = image.size
     pixel_mm = get_pixel_size_in_mm(image)
+    image = image.resize((224, 224))
+    pixel_mm = (original_width / 224) * pixel_mm
     results = segment_and_classify(image)
     class_list = image_class_list(results)
     result = {}
     for data in class_list:
         matching_calories = None
         for key, value in calories.items():
-            if str(data["class"]) in key:
+            if str(data["class"]).lower() in key.lower():
                 matching_calories = value
                 break  # Stop searching after the first match
-        result[str(data["class"])] = matching_calories
+        result[str(data["class"])] = calculate_amount_of_calories(pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal")))
     return result
 
 

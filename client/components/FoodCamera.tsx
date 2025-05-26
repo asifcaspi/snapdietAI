@@ -62,7 +62,12 @@ export default function FoodCamera() {
       <View>
         <CameraView style={[styles.camera, imageUri && styles.hidden]} ref={cameraRef} facing={facing}>
         </CameraView>
-        <View style={styles.overlay}>
+        <View
+          style={[
+            styles.overlay,
+            imageUri && { opacity: 0, pointerEvents: 'none' }
+          ]}
+        >
           <View style={styles.circle}></View>
           <View style={styles.coinCircle}></View>
         </View>
@@ -101,6 +106,9 @@ const styles = StyleSheet.create({
   },
   hidden: {
     display: 'none',
+  },
+  noColor: {
+    borderColor: 'transparent',
   },
   overlay: {
     position: 'absolute',
