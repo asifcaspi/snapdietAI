@@ -1,4 +1,5 @@
 from PIL import Image
+import numpy as np
 
 width_on_client = 300
 height_on_client = 300
@@ -23,7 +24,7 @@ def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
     area_mm2 = pixel_count * pixel_size_in_mm
     volume_mm3 = area_mm2 * thickness_mm
     mass_g = volume_mm3 * density_g_per_mm3
-    return ((mass_g / 100) * cal_per_100g).quantize(0.01)  # Round to 2 decimal places
+    return np.round(((mass_g / 100) * cal_per_100g), 2)
 
     
 
