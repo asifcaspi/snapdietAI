@@ -1,22 +1,11 @@
-from PIL import Image
 import numpy as np
+from app.constants.coins import coin_to_width
 
-width_on_client = 300
-height_on_client = 300
-
-# x_position_on_client, y_position_on_client = (30, 20)
-
-coin_size = 40
-
-COIN_WIDTH = 22 # in mm
-
-def get_pixel_size_in_mm(image: Image.Image):
-    heigh, width = image.size
-    scaleWidth = width / width_on_client
-    
-    coin_pixel_width = coin_size * scaleWidth
-    print(COIN_WIDTH / coin_pixel_width)
-    return COIN_WIDTH / coin_pixel_width
+def get_pixel_size_in_mm(coin_area_in_pixels: int, coin_type: str):
+    real_radius_mm = coin_to_width[coin_type] / 2  # Convert diameter to radius
+    real_area_mm2 = np.pi * (real_radius_mm ** 2)  # Area of the coin in mm^2
+    pixel_area_mm2 = real_area_mm2 / coin_area_in_pixels  # Area per
+    return np.sqrt(pixel_area_mm2)  # Return the pixel size in mm
 
 def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
     thickness_mm = 15  # in mm
@@ -26,8 +15,44 @@ def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
     mass_g = volume_mm3 * density_g_per_mm3
     return np.round(((mass_g / 100) * cal_per_100g), 2)
 
-    
+def remove_duplicate_segments_from_masks(masks):
+    print(f"Before deduplication: {len(masks)} masks")
+    unique_masks = []
+    for i, m1 in enumerate(masks):
+        is_duplicate = False
+        for m2 in unique_masks:
+            inter = np.logical_and(m1["segmentation"], m2["segmentation"])
+            overlap = np.sum(inter) / min(np.sum(m1["segmentation"]), np.sum(m2["segmentation"]))
+            if overlap > 0.5:
+                print(f"Mask {i} is over 50% overlapping with another, removing")
+                is_duplicate = True
+                break
+        if not is_duplicate:
+            unique_masks.append(m1)
+    print(f"After deduplication: {len(unique_masks)} masks")
+    return unique_masks
 
+def merge_segments_if_similar(segments, image):
+    i = 0
+    while i < len(segments):
+        base = segments[i]
+        j = i + 1
+        while j < len(segments):
+            candidate = segments[j]
+            if base['class'] == candidate['class']:
+                merged_mask = np.logical_or(base["mask"], candidate["mask"])
+                masked_image = image.copy()
+                masked_image[~merged_mask] = 0
+                print(f"Similar class, Merged {j} ({candidate['class']}) into {i} ({base['class']}) (removing idx {j})")
 
+                base["mask"] = merged_mask
+                base["pixels"] = np.sum(merged_mask)
+                segments.pop(j)
+            else:
+                j += 1
+        i += 1
+
+    print(f"After merging: {len(segments)} segments kept")
+    return segments
 
 
