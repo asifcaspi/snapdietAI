@@ -20,7 +20,8 @@ from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 from app.constants.non_food import non_food
 from app.constants.coins import coins_names
 
-# torch.set_num_threads(8)
+torch.set_num_threads(8)
+
 coin_model_path = os.path.join(os.path.dirname(__file__), "../../coin_detection.keras")
 if not os.path.exists(coin_model_path):
     url = "1_Nb8SS0mUhQc-ZSjbTHxCsqpjOP4QB8r"
@@ -56,6 +57,7 @@ with open(calories_path, "r") as f:
     calories = {row["FoodItem"]: row["Cals_per100grams"] for row in reader}
 
 def image_preprocess(img):
+    img = np.array(img)
     img = tf.keras.applications.resnet50.preprocess_input(img)
     return tf.expand_dims(img, 0)
 
@@ -148,7 +150,8 @@ def image_class_list(segments):
         pixel_count = seg["pixels"]
         class_pixel_map[class_name] += pixel_count
 
-    result = [{"class": name, "pixels": pixels} for name, pixels in class_pixel_map.items() if name not in non_food]
+    result = [{"class": name, "pixels": pixels} for name, pixels in class_pixel_map.items() 
+              if name not in non_food and name not in coins_names]
     return result
 
 @router.post("/upload")
@@ -157,8 +160,8 @@ async def upload_image(data: Base64Image):
     image = Image.open(io.BytesIO(image_data))
     image = image.resize((224, 224))
     results = segment_and_classify(image)
+    coin = [data for data in results if data["class"] in coins_names]
     class_list = image_class_list(results)
-    coin = [data for data in class_list if data["class"] in coins_names]
     if not len(coin):
         return {"error": "No coins detected"}
     pixel_mm = get_pixel_size_in_mm(coin[0]["pixels"], coin[0]["class"])
