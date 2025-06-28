@@ -8,9 +8,10 @@ from fastapi import APIRouter
 from PIL import Image
 from app.models.b64_image_model import Base64Image
 import numpy as np
-import tensorflow as tf
 from app.utils.image_utils import calculate_amount_of_calories, get_pixel_size_in_mm, merge_segments_if_similar, remove_duplicate_segments_from_masks
 import torch
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Force TensorFlow to use CPU
+import tensorflow as tf
 import open_clip
 import joblib
 import platform
