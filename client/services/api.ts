@@ -1,7 +1,8 @@
 import * as FileSystem from 'expo-file-system';
 import axios from 'axios';
 
-// const API_URL = 'http://192.168.1.44:8000/upload'; // local
+// const API_URL = 'http://192.168.1.44:8000/upload'; // local laptop
+// const API_URL = 'http://192.168.1.229:8000/upload'; // local home computer
 const API_URL = 'http://193.106.55.126:8000/upload'; // remote server
 
 

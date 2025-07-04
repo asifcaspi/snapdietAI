@@ -1,11 +1,14 @@
+import base64
 import numpy as np
 from app.constants.coins import coin_to_width
+import cv2
+import matplotlib.pyplot as plt
 
 def get_pixel_size_in_mm(coin_area_in_pixels: int, coin_type: str):
     real_radius_mm = coin_to_width[coin_type] / 2  # Convert diameter to radius
     real_area_mm2 = np.pi * (real_radius_mm ** 2)  # Area of the coin in mm^2
     pixel_area_mm2 = real_area_mm2 / coin_area_in_pixels  # Area per
-    return np.sqrt(pixel_area_mm2)  # Return the pixel size in mm
+    return np.sqrt(pixel_area_mm2) * 2  # Return the pixel size in mm
 
 def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
     thickness_mm = 15  # in mm
@@ -54,5 +57,40 @@ def merge_segments_if_similar(segments, image):
 
     print(f"After merging: {len(segments)} segments kept")
     return segments
+
+def show_segments_on_image(image, segments):
+    overlay = np.array(image)
+    color_map = plt.colormaps.get_cmap("tab20")
+
+    for i, seg in enumerate(segments):
+        mask = seg["mask"]
+        class_name = seg["class"]
+
+        # if class_name not in food_names:
+        #     continue
+
+        # Get a consistent color per segment
+        color = (np.array(color_map(i / max(1, len(segments))))[:3] * 255).astype(np.uint8)
+
+        colored_mask = np.zeros_like(image, dtype=np.uint8)
+        for c in range(3):
+            colored_mask[:, :, c] = mask.astype(np.uint8) * color[c]
+
+        overlay = cv2.addWeighted(overlay, 1.0, colored_mask, 0.5, 0)
+
+        ys, xs = np.where(mask)
+        if len(xs) > 0 and len(ys) > 0:
+            x, y = xs.min(), ys.min()
+            label = f"{class_name}"
+            cv2.putText(overlay, label, (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.6, (255, 255, 255), 2, cv2.LINE_AA)
+            
+    return overlay
+
+def convert_image_to_base64(image):
+    _, buffer = cv2.imencode('.jpg', image)
+    base64_image = base64.b64encode(buffer).decode('utf-8')
+    return f"data:image/jpeg;base64,{base64_image}"
+
 
 

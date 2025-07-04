@@ -42,8 +42,9 @@ export default function FoodCamera() {
       setLoading(true); // Set loading to true while uploading
 
       try {
-        const response = await uploadImage(fixedUri);
-        setResults(response); // Save the results to display below the image
+        const { result, image } = await uploadImage(fixedUri);
+        setResults(result); // Save the results to display below the image
+        setImageUri(image); // Set the image URI to the base64 string returned from the server
       } catch (error) {
         console.error("Error uploading image:", error);
       } finally {

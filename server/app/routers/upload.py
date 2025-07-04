@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from PIL import Image
 from app.models.b64_image_model import Base64Image
 import numpy as np
-from app.utils.image_utils import calculate_amount_of_calories, get_pixel_size_in_mm, merge_segments_if_similar, remove_duplicate_segments_from_masks
+from app.utils.image_utils import calculate_amount_of_calories, convert_image_to_base64, get_pixel_size_in_mm, merge_segments_if_similar, remove_duplicate_segments_from_masks, show_segments_on_image
 import torch
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Force TensorFlow to use CPU
 import tensorflow as tf
@@ -57,9 +57,11 @@ with open(calories_path, "r") as f:
     calories = {row["FoodItem"]: row["Cals_per100grams"] for row in reader}
 
 def image_preprocess(img):
-    img = np.array(img)
-    img = tf.keras.applications.resnet50.preprocess_input(img)
-    return tf.expand_dims(img, 0)
+    image = img.copy()
+    image = tf.image.resize(image, (224, 224))
+    image = np.array(image)
+    image = tf.keras.applications.resnet50.preprocess_input(image)
+    return tf.expand_dims(image, 0)
 
 def coin_detection(image):
     image = image_preprocess(image)
@@ -89,17 +91,18 @@ def clip_classification(image):
 
 def hybrid_classify(image):
     clip_pred, clip_dist = clip_classification(image)
-    if clip_dist >= 0.72:
-        return "unknown"
-    elif clip_pred == "coin":
+    if clip_pred == "coin":
         coin_pred, coin_conf = coin_detection(image)
-        return coin_pred
+        return coin_pred, coin_conf
+    elif clip_dist >= 0.71:
+        return "unknown", clip_dist
     else:
-        return clip_pred
+        return clip_pred, clip_dist
     
 # Segment and classify each segment + merging
 def segment_and_classify(image):
     image = np.array(image)
+
     # Time measurement for SAM segmentation
     start_sam = time.time()
     masks = mask_generator.generate(image)
@@ -113,6 +116,8 @@ def segment_and_classify(image):
     masks = remove_duplicate_segments_from_masks(masks)
 
     output = []
+
+    coinIdx = None
     for mask_dict in masks:
         seg_mask = mask_dict["segmentation"]
 
@@ -121,23 +126,41 @@ def segment_and_classify(image):
         masked_image[~seg_mask] = 0
 
         pil_segment = Image.fromarray(masked_image)
-        pred = hybrid_classify(pil_segment)
-        if pred == "unknown":
-          print(f"Not a solid classification, ignoring")
-          continue
+        pred, conf = hybrid_classify(pil_segment)
 
         pixel_count = np.sum(seg_mask)
         x, y, z = image.shape
         minSize = (x * y) / 130
+
+        obj = {
+            "mask": seg_mask,
+            "class": pred,
+            "conf": conf,
+            "pixels": pixel_count
+        }
+
+        if pred in coins_names:
+            if coinIdx is None:
+                print(f"Found the first coin segment no.{len(output)}")
+                coinIdx = len(output)
+            else:
+                if conf > output[coinIdx]["conf"]:
+                    print(f"Found better coin, replace segment no.{coinIdx}")
+                    output[coinIdx] = obj
+                else:
+                    print(f"Ignoring the coin, better one found before")
+                    continue
+
         if pixel_count < (minSize) and pred not in coins_names:
           print(f"Too small segment, ignoring")
           continue
 
-        output.append({
-            "mask": seg_mask,
-            "class": pred,
-            "pixels": pixel_count
-        })
+        if pred == "unknown":
+          print(f"Not a solid classification, ignoring")
+          continue
+
+        output.append(obj)
+
     print(f"Initial segments: {len(output)}, Merging segments")
     merged_output = merge_segments_if_similar(output, image)
     return merged_output
@@ -158,7 +181,7 @@ def image_class_list(segments):
 async def upload_image(data: Base64Image):
     image_data = base64.b64decode(data.image.split(",")[1])
     image = Image.open(io.BytesIO(image_data))
-    image = image.resize((224, 224))
+    image = image.resize((512, 512))
     results = segment_and_classify(image)
     coin = [data for data in results if data["class"] in coins_names]
     class_list = image_class_list(results)
@@ -173,6 +196,8 @@ async def upload_image(data: Base64Image):
                 matching_calories = value
                 break  # Stop searching after the first match
         result[str(data["class"])] = calculate_amount_of_calories(pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal"))) if matching_calories else None
-    return result
+    
+    
+    return { "result": result, "image": convert_image_to_base64(show_segments_on_image(image, results)) }
 
 
