@@ -8,7 +8,7 @@ def get_pixel_size_in_mm(coin_area_in_pixels: int, coin_type: str):
     real_radius_mm = coin_to_width[coin_type] / 2  # Convert diameter to radius
     real_area_mm2 = np.pi * (real_radius_mm ** 2)  # Area of the coin in mm^2
     pixel_area_mm2 = real_area_mm2 / coin_area_in_pixels  # Area per
-    return np.sqrt(pixel_area_mm2) * 2  # Return the pixel size in mm
+    return np.sqrt(pixel_area_mm2)  # Return the pixel size in mm
 
 def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
     thickness_mm = 15  # in mm
