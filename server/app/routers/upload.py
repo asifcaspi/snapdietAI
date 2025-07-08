@@ -238,7 +238,10 @@ async def upload_image(data: Base64Image):
     coin = [data for data in results if data["class"] in coins_names]
     class_list = image_class_list(results)
     if not len(coin):
-        return {"error": "No coins detected"}, convert_image_to_base64(np.array(image))
+        return {
+            "result": {"error": "No coins detected"},
+            "image": convert_image_to_base64(np.array(image)),
+        }
     pixel_mm = get_pixel_size_in_mm(coin[0]["pixels"], coin[0]["class"])
     result = {}
     for data in class_list:
