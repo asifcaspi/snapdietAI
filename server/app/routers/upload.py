@@ -2,106 +2,64 @@ from collections import defaultdict
 import io
 import base64
 import os
-import csv
 import time
 from fastapi import APIRouter
 from PIL import Image
 from app.models.b64_image_model import Base64Image
 import numpy as np
-from app.utils.image_utils import calculate_amount_of_calories, convert_image_to_base64, get_pixel_size_in_mm, merge_segments_if_similar, remove_duplicate_segments_from_masks, show_segments_on_image
+from app.utils.image_utils import (
+    calculate_amount_of_calories,
+    convert_image_to_base64,
+    get_pixel_size_in_mm,
+    merge_segments_if_similar,
+    remove_duplicate_segments_from_masks,
+    show_segments_on_image,
+    bbox_segment,
+    expand_mask,
+)
+from app.utils.general_utils import clean_results, merge_objects
 import torch
+
+from app.constants.calories import calories
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"  # Force TensorFlow to use CPU
-import tensorflow as tf
-import open_clip
-import joblib
-import platform
-from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
 
 from app.constants.non_food import non_food
 from app.constants.coins import coins_names
+from app.ai_models.classifier import Classifier
+from app.ai_models.sam import mask_generator
+from app.ai_models.coin_detector import CoinDetector
+from app.ai_models.blip import Blip
 
 torch.set_num_threads(8)
 
-coin_model_path = os.path.join(os.path.dirname(__file__), "../../coin_detection.keras")
-if not os.path.exists(coin_model_path):
-    url = "1_Nb8SS0mUhQc-ZSjbTHxCsqpjOP4QB8r"
+classifier = Classifier()
+coin_detector = CoinDetector()
+blip = Blip()
 
-    os.system(f"gdown {url} -O {coin_model_path}")
 
-output_file = os.path.join(os.path.join(os.path.dirname(__file__), "../../sam_vit_l_0b3195.pth"))
-if not os.path.exists(output_file):
-    url = "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_l_0b3195.pth"
-
-    if platform.system() == "Windows":
-        os.system(f"curl -o \"{output_file}\" {url}")
-    else:
-        os.system(f"wget -O \"{output_file}\" {url}")
-
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(device)
-model, _, preprocess = open_clip.create_model_and_transforms('ViT-B-32', pretrained='laion2b_s34b_b79k')
-model = model.to(device).eval()
-
-coin_detection_model = tf.keras.models.load_model(coin_model_path)
-knn_clip = joblib.load(os.path.join(os.path.dirname(__file__), "../../knn_clip.pkl"))
-
-sam = sam_model_registry["vit_l"](checkpoint="sam_vit_l_0b3195.pth")
-sam.to(device)
-mask_generator = SamAutomaticMaskGenerator(sam, points_per_side=16)
-
-router = APIRouter()
-
-calories_path = os.path.join(os.path.dirname(__file__), "../../calories.csv")
-with open(calories_path, "r") as f:
-    reader = csv.DictReader(f)
-    calories = {row["FoodItem"]: row["Cals_per100grams"] for row in reader}
-
-def image_preprocess(img):
-    image = img.copy()
-    image = tf.image.resize(image, (224, 224))
-    image = np.array(image)
-    image = tf.keras.applications.resnet50.preprocess_input(image)
-    return tf.expand_dims(image, 0)
-
-def coin_detection(image):
-    image = image_preprocess(image)
-    preds = coin_detection_model.predict(image)
-    idx = np.argmax(preds[0])
-    conf = preds[0][idx]
-    print(f"Coin detected class: {idx} → “{coins_names[idx]}”  (confidence: {conf:.3f})")
-
-    return coins_names[idx], conf
-
-def get_clip_embedding(image):
-    image_tensor = preprocess(image).unsqueeze(0).to(device)
-    with torch.no_grad():
-        img_feat = model.encode_image(image_tensor)
-        img_feat = img_feat / img_feat.norm(dim=-1, keepdim=True)
-    return img_feat.cpu().numpy().flatten()
-
-def clip_classification(image):
-    image_embedding_clip = get_clip_embedding(image)
-    clip_distances, clip_indices = knn_clip.kneighbors([image_embedding_clip], n_neighbors=1)
-    clip_pred = knn_clip.predict([image_embedding_clip])[0]
-    clip_dist = clip_distances[0][0]
-
-    print(f"Clip predict: {clip_pred} with distance of: {clip_dist}")
-
-    return clip_pred, clip_dist
-
-def hybrid_classify(image):
-    clip_pred, clip_dist = clip_classification(image)
-    if clip_pred == "coin":
-        coin_pred, coin_conf = coin_detection(image)
-        return coin_pred, coin_conf
-    elif clip_dist >= 0.71:
-        return "unknown", clip_dist
-    else:
-        return clip_pred, clip_dist
-    
 # Segment and classify each segment + merging
-def segment_and_classify(image):
-    image = np.array(image)
+def segment_and_classify(
+    pil,
+    knn_weight_threshold=1.45,
+    knn_raw_threshold=0.68,
+    prompt_threshold=0.27,
+    prompt_threshold_fault=0.02,
+    top_k=5,
+):
+    image = np.array(pil)
+
+    prompts = ["Name all ingredients and prepared dishes you see in this photo."]
+    start_cap = time.time()
+    caption = blip.generate_caption(pil, prompts)
+    results = merge_objects(caption)
+    end_cap = time.time()
+    print(f"BLIP prediction time: {end_cap - start_cap:.4f} seconds")
+
+    # for BLIP-Base usage, remove where value contains a prompt
+    results = clean_results(results)
+
+    print(f"BLIP found: {results}")
 
     # Time measurement for SAM segmentation
     start_sam = time.time()
@@ -116,54 +74,141 @@ def segment_and_classify(image):
     masks = remove_duplicate_segments_from_masks(masks)
 
     output = []
-
     coinIdx = None
+    H, W, _ = image.shape
+    minSize = (H * W) / 130
+
+    # Pre-allocate blank canvas once
+    blank = np.zeros_like(image)
+
     for mask_dict in masks:
         seg_mask = mask_dict["segmentation"]
+        pixel_count = seg_mask.sum()
+        print(f"Segment size: {pixel_count}px")
 
         # Create masked segment image
-        masked_image = image.copy()
-        masked_image[~seg_mask] = 0
+        masked_np = blank.copy()
+        masked_np[seg_mask] = image[seg_mask]
+        pil_segment = Image.fromarray(masked_np)
 
-        pil_segment = Image.fromarray(masked_image)
-        pred, conf = hybrid_classify(pil_segment)
-
-        pixel_count = np.sum(seg_mask)
-        x, y, z = image.shape
-        minSize = (x * y) / 130
+        pred, knn_res, ens_res = classifier.hybrid_classify(
+            pil_segment,
+            knn_weight_threshold,
+            knn_raw_threshold,
+            prompt_threshold,
+            prompt_threshold_fault,
+        )
+        coin_conf = None
+        if pred == "coin":
+            pred, coin_conf = coin_detector.coin_detection(pil)
 
         obj = {
             "mask": seg_mask,
             "class": pred,
-            "conf": conf,
-            "pixels": pixel_count
+            "coin_conf": coin_conf,
+            "pixels": pixel_count,
         }
 
-        if pred in coins_names:
+        if obj["class"] in coins_names:
             if coinIdx is None:
                 print(f"Found the first coin segment no.{len(output)}")
                 coinIdx = len(output)
             else:
-                if conf > output[coinIdx]["conf"]:
+                old_coin_conf = output[coinIdx]["coin_conf"]
+                print(
+                    f"Found another coin, old coin conf - {old_coin_conf}, new coin conf - {coin_conf}"
+                )
+                if coin_conf > old_coin_conf:
                     print(f"Found better coin, replace segment no.{coinIdx}")
                     output[coinIdx] = obj
                 else:
-                    print(f"Ignoring the coin, better one found before")
-                    continue
+                    print("Ignoring weaker coin")
 
-        if pixel_count < (minSize) and pred not in coins_names:
-          print(f"Too small segment, ignoring")
-          continue
+                continue
 
-        if pred == "unknown":
-          print(f"Not a solid classification, ignoring")
-          continue
+        if obj["pixels"] < (minSize) and obj["class"] not in coins_names:
+            print("Too small segment, ignoring")
+            continue
 
-        output.append(obj)
+        if top_k < 1 or top_k > 10:
+            top_k = 3
+
+        if obj["class"] == "unknown":
+            top_k_knn = [lbl for lbl, _, _ in knn_res[:top_k]]
+            top_k_ens = [lbl for lbl, _ in ens_res[:top_k]]
+
+            # find labels in both predictions
+            common_candidates = set(top_k_knn).intersection(top_k_ens)
+            rescued = False
+
+            for candidate in common_candidates:
+                if any(candidate in food or food in candidate for food in results):
+                    obj["class"] = candidate
+                    print(
+                        f"Recovered '{candidate}' from top-{top_k} via substring match"
+                    )
+                    rescued = True
+                    break
+
+            if not rescued:
+                print(
+                    f"No shared candidate in top-{top_k} KNN & ENS for this segment, staying 'unknown'"
+                )
+
+        # Scaling unknown segments
+        if obj["class"] == "unknown":
+            # Normlizing (0, IMG_HEIGHT * IMG_WIDTH) -> (a,b)
+            a = 1.01
+            b = 1.05
+            scale = a + ((b - a) * pixel_count) / (H * W)
+            print(f"Scaling unknown segment by {scale}")
+            new_mask = expand_mask(seg_mask, scale)
+
+            # New mask
+            scaled_np = blank.copy()
+            scaled_np[new_mask] = image[new_mask]
+            pil2 = Image.fromarray(scaled_np)
+
+            # Adjust thresholds
+            wt_t = knn_weight_threshold  # * scale
+            rd_t = knn_raw_threshold  # / scale
+            pt_t = prompt_threshold  # * scale
+
+            pred2, knn_res2, ens_res2 = classifier.hybrid_classify(
+                pil2, wt_t, rd_t, pt_t, prompt_threshold_fault
+            )
+            if pred2 != "unknown":
+                print(f"Resolved at scale {scale:.2f}: {pred2}")
+                obj.update({"class": pred2, "knn_res": knn_res2, "ens_res": ens_res2})
+            else:
+                print("Still unknown after scaling")
+
+        # Zooming unknown segments
+        if obj["class"] == "unknown":
+            pil3 = bbox_segment(image, seg_mask)
+
+            pred3, knn_res3, ens_res3 = classifier.hybrid_classify(
+                pil3,
+                knn_weight_threshold,
+                knn_raw_threshold,
+                prompt_threshold,
+                prompt_threshold_fault,
+            )
+            if pred3 != "unknown":
+                print("Resolved after zoom")
+                obj.update({"class": pred3, "knn_res": knn_res3, "ens_res": ens_res3})
+            else:
+                print("Still unknown after zooming")
+
+        if obj["class"] != "unknown":
+            output.append(obj)
+        else:
+            print("Could not classify the segment, skipping segment")
 
     print(f"Initial segments: {len(output)}, Merging segments")
-    merged_output = merge_segments_if_similar(output, image)
+    merged_output = merge_segments_if_similar(output)
     return merged_output
+
 
 def image_class_list(segments):
     class_pixel_map = defaultdict(int)
@@ -173,9 +218,16 @@ def image_class_list(segments):
         pixel_count = seg["pixels"]
         class_pixel_map[class_name] += pixel_count
 
-    result = [{"class": name, "pixels": pixels} for name, pixels in class_pixel_map.items() 
-              if name not in non_food and name not in coins_names]
+    result = [
+        {"class": name, "pixels": pixels}
+        for name, pixels in class_pixel_map.items()
+        if name not in non_food and name not in coins_names
+    ]
     return result
+
+
+router = APIRouter()
+
 
 @router.post("/upload")
 async def upload_image(data: Base64Image):
@@ -195,9 +247,15 @@ async def upload_image(data: Base64Image):
             if str(data["class"]).lower() in key.lower():
                 matching_calories = value
                 break  # Stop searching after the first match
-        result[str(data["class"])] = calculate_amount_of_calories(pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal"))) if matching_calories else None
-    
-    
-    return { "result": result, "image": convert_image_to_base64(show_segments_on_image(image, results)) }
+        result[str(data["class"])] = (
+            calculate_amount_of_calories(
+                pixel_mm, data["pixels"], float(matching_calories.removesuffix(" cal"))
+            )
+            if matching_calories
+            else None
+        )
 
-
+    return {
+        "result": result,
+        "image": convert_image_to_base64(show_segments_on_image(image, results)),
+    }
