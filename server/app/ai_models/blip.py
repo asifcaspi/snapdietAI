@@ -5,10 +5,10 @@ from app.constants.device import device
 class Blip:
     def __init__(self):
         self.processor = BlipProcessor.from_pretrained(
-            "Salesforce/blip-image-captioning-base"
+            "Salesforce/blip-image-captioning-large"
         )
         self.blip_model = BlipForConditionalGeneration.from_pretrained(
-            "Salesforce/blip-image-captioning-base"
+            "Salesforce/blip-image-captioning-large"
         ).to(device)
 
     def generate_caption(self, image, prompts):

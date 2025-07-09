@@ -49,7 +49,12 @@ def segment_and_classify(
 ):
     image = np.array(pil)
 
-    prompts = ["Name all ingredients and prepared dishes you see in this photo."]
+
+    prompts = [
+        "Provide a bullet - point list of all the foods visible in this image.",
+        "Name every dish, snack, and drink visible in this image. Provide each item on its own line.",
+        "List all of the food and drink items you see in this image, each as a bullet point.",
+    ]
     start_cap = time.time()
     caption = blip.generate_caption(pil, prompts)
     results = merge_objects(caption)
@@ -71,7 +76,7 @@ def segment_and_classify(
     masks = sorted(masks, key=lambda x: np.sum(x["segmentation"]), reverse=True)
 
     # Removing overriding segments
-    masks = remove_duplicate_segments_from_masks(masks)
+    masks, dropped_masks = remove_duplicate_segments_from_masks(masks)
 
     output = []
     coinIdx = None
@@ -130,30 +135,50 @@ def segment_and_classify(
             print("Too small segment, ignoring")
             continue
 
+        # enforce a reasonable top_k
         if top_k < 1 or top_k > 10:
             top_k = 3
 
-        if obj["class"] == "unknown":
-            top_k_knn = [lbl for lbl, _, _ in knn_res[:top_k]]
-            top_k_ens = [lbl for lbl, _ in ens_res[:top_k]]
+        # get your full top-k lists
+        top_k_knn = [lbl for lbl, _, _ in knn_res[:top_k]]
+        top_k_ens = [lbl for lbl, _ in ens_res[:top_k]]
 
-            # find labels in both predictions
+        # how many to check in this first “paired” pass
+        half = top_k // 2
+
+        rescued = False
+
+        # only iterate the first half of each
+        for item_knn, item_ens in zip(top_k_knn[:half], top_k_ens[:half]):
+            # try KNN candidate first
+            if any(item_knn in food or food in item_knn for food in results):
+                print(
+                    f"Blip recovered '{pred}' from top-{half}-knn, changing to {item_knn}"
+                )
+                obj["class"] = item_knn
+                rescued = True
+                break
+
+            # then try ENS candidate
+            if any(item_ens in food or food in item_ens for food in results):
+                print(
+                    f"Blip recovered '{pred}' from top-{half}-ens, changing to {item_ens}"
+                )
+                obj["class"] = item_ens
+                rescued = True
+                break
+
+        # if still not rescued, fall back to “intersection” logic
+        if not rescued:
             common_candidates = set(top_k_knn).intersection(top_k_ens)
-            rescued = False
-
             for candidate in common_candidates:
                 if any(candidate in food or food in candidate for food in results):
-                    obj["class"] = candidate
                     print(
-                        f"Recovered '{candidate}' from top-{top_k} via substring match"
+                        f"Blip recovered '{pred}' from top-{top_k}, changing to {candidate}"
                     )
+                    obj["class"] = candidate
                     rescued = True
                     break
-
-            if not rescued:
-                print(
-                    f"No shared candidate in top-{top_k} KNN & ENS for this segment, staying 'unknown'"
-                )
 
         # Scaling unknown segments
         if obj["class"] == "unknown":
@@ -204,6 +229,33 @@ def segment_and_classify(
             output.append(obj)
         else:
             print("Could not classify the segment, skipping segment")
+
+    if coinIdx is None:
+        print("No coin in main segments, trying duplicates…")
+        for mask_dict in dropped_masks:
+            seg_mask = mask_dict["segmentation"]
+            pil_seg = bbox_segment(image, seg_mask)
+            pred, _, _ = classifier.hybrid_classify(
+                pil_seg,
+                knn_weight_threshold,
+                knn_raw_threshold,
+                prompt_threshold,
+                prompt_threshold_fault,
+            )
+
+            if pred in coins_names:
+                # run your coin detector to get confidence
+                pred, coin_conf = coin_detector.coin_detection(pil)
+                coin_obj = {
+                    "mask": seg_mask,
+                    "class": pred,
+                    "coin_conf": coin_conf,
+                    "pixels": seg_mask.sum(),
+                }
+                print("Found coin in duplicates, appending as coin segment")
+                output.append(coin_obj)
+                coinIdx = len(output) - 1
+                break
 
     print(f"Initial segments: {len(output)}, Merging segments")
     merged_output = merge_segments_if_similar(output)

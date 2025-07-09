@@ -26,6 +26,7 @@ def calculate_amount_of_calories(pixel_size_in_mm, pixel_count, cal_per_100g):
 def remove_duplicate_segments_from_masks(masks):
     print(f"Before deduplication: {len(masks)} masks")
     unique_masks = []
+    dup_masks = []
     for i, m1 in enumerate(masks):
         is_duplicate = False
         for m2 in unique_masks:
@@ -35,12 +36,14 @@ def remove_duplicate_segments_from_masks(masks):
             )
             if overlap > 0.5:
                 print(f"Mask {i} is over 50% overlapping with another, removing")
+                dup_masks.append(m1)
                 is_duplicate = True
                 break
         if not is_duplicate:
             unique_masks.append(m1)
-    print(f"After deduplication: {len(unique_masks)} masks")
-    return unique_masks
+    print(f"After deduplication: {len(unique_masks)} masks (dropped {len(dup_masks)})")
+
+    return unique_masks, dup_masks
 
 
 def merge_segments_if_similar(segments):
